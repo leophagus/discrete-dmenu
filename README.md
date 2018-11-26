@@ -11,7 +11,7 @@ circle, sine curve, box, anything.
 ![Screenshot](../master/docs/discrete_dmenu_circ.gif)
 
 ## Why discrete-dmenu?
-Just eye-candy :)
+Just eye-candy :) And dmenu is super-cool !
 
 ## How to use?
 Prepend the menu-items with a newline terminated list of on-screen locations.

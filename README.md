@@ -7,6 +7,7 @@ circle, sine curve, box, anything.
 ![Screenshot](../master/docs/discrete_dmenu_circ.png)
 ![Screenshot](../master/docs/discrete_dmenu_cosine.png)
 ![Screenshot](../master/docs/discrete_dmenu_sine.png)
+![Screenshot](../master/docs/discrete_dmenu_sine.gif)
 
 ## Why discrete-dmenu?
 Just eye-candy :)

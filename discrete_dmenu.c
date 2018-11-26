@@ -35,7 +35,7 @@ struct item {
 
 static char text[BUFSIZ] = "";
 static char *embed;
-static int bh, mw, mh;
+static int bh, mw, mh, mx=-1, my=-1;
 static int inputw = 0, promptw;
 static int lrpad; /* sum of left and right padding */
 static size_t cursor;
@@ -51,6 +51,10 @@ static XIC xic;
 
 static Drw *drw;
 static Clr *scheme[SchemeLast];
+
+static Drw **cdrw;
+static int nwins = 0;
+static Window *cwins;
 
 #include "config.h"
 
@@ -74,6 +78,13 @@ static void
 calcoffsets(void)
 {
 	int i, n;
+
+  if (nwins) {
+	  for (i = 0, next = curr; next && i < nwins; next = next->right, ++i);
+	  for (i = 0, prev = curr; prev && prev->left && i < nwins; prev = prev->left, ++i);
+    //printf ("calcoffsets prev %s next %s\n", (prev?prev->text:"NULL"), (next?next->text:"NULL"));
+    return;
+  }
 
 	if (lines > 0)
 		n = lines * bh;
@@ -113,7 +124,7 @@ cistrstr(const char *s, const char *sub)
 }
 
 static int
-drawitem(struct item *item, int x, int y, int w)
+drawitem(Drw *drw, struct item *item, int x, int y, int w, int h, int pad)
 {
 	if (item == sel)
 		drw_setscheme(drw, scheme[SchemeSel]);
@@ -122,7 +133,8 @@ drawitem(struct item *item, int x, int y, int w)
 	else
 		drw_setscheme(drw, scheme[SchemeNorm]);
 
-	return drw_text(drw, x, y, w, bh, lrpad / 2, item->text, 0);
+	//return drw_text(drw, x, y, w, bh, lrpad / 2, item->text, 0);
+	return drw_text(drw, x, y, w, h, pad, item->text, 0);
 }
 
 static void
@@ -150,10 +162,11 @@ drawmenu(void)
 		drw_rect(drw, x + curpos, 2, 2, bh - 4, 1, 0);
 	}
 
+  int wc=0;
 	if (lines > 0) {
 		/* draw vertical list */
 		for (item = curr; item != next; item = item->right)
-			drawitem(item, x, y += bh, mw - x);
+			drawitem(drw, item, x, y += bh, mw - x, bh, lrpad/2);
 	} else if (matches) {
 		/* draw horizontal list */
 		x += inputw;
@@ -163,14 +176,39 @@ drawmenu(void)
 			drw_text(drw, x, 0, w, bh, lrpad / 2, "<", 0);
 		}
 		x += w;
-		for (item = curr; item != next; item = item->right)
-			x = drawitem(item, x, 0, MIN(TEXTW(item->text), mw - x - TEXTW(">")));
+		for (item = curr; item != next; item = item->right) {
+      if (nwins) {
+	      XMapRaised (dpy, cwins[wc]);
+        //printf ("drawitem #1 x %d wc %d text %s\n", x, wc, item->text);
+        int itW = drw_fontset_getwidth (cdrw [wc], item->text);
+        //printf ("wc %d itW %d cdrw[wc]->w %d actual %d\n", wc, itW, cdrw[wc]->w, MIN (itW, cdrw[wc]->w));
+			  x = drawitem(cdrw[wc], item, 0, 0, cdrw[wc]->w, cdrw[wc]->h, 0);
+	      drw_map(cdrw[wc], cwins[wc], 0, 0, cdrw[wc]->w, cdrw[wc]->h);
+        ++ wc; 
+        if (wc >= nwins) break;
+      } else {
+        //printf ("drawitem #2 x %d text %s\n", x, item->text);
+			  x = drawitem(drw, item, x, 0, MIN(TEXTW(item->text), mw - x - TEXTW(">")), bh, lrpad/2);
+      }
+    }
 		if (next) {
 			w = TEXTW(">");
 			drw_setscheme(drw, scheme[SchemeNorm]);
 			drw_text(drw, mw - w, 0, w, bh, lrpad / 2, ">", 0);
 		}
 	}
+
+  if (nwins && wc < nwins) {
+    for ( ; wc < nwins; ++wc) {
+      //printf ("XUnmapWindow wc %d, nwins %d\n", wc, nwins);
+      // TODO unmap unused wins. remap them if needed
+      XUnmapWindow (dpy, cwins[wc]);
+      //drw_setscheme (cdrw[wc], scheme[SchemeNorm]);
+      //drw_text(cdrw[wc], 0, 0, cdrw[wc]->w, cdrw[wc]->h, 0, " ", 0);
+      //drw_map(cdrw[wc], cwins[wc], 0, 0, cdrw[wc]->w, cdrw[wc]->h);
+    }
+  }
+
 	drw_map(drw, win, 0, 0, mw, mh);
 }
 
@@ -236,10 +274,14 @@ match(void)
 		if (i != tokc) /* not all tokens match */
 			continue;
 		/* exact matches go first, then prefixes, then substrings */
-		if (!tokc || !fstrncmp(text, item->text, textsize))
+		if (!tokc || !fstrncmp(text, item->text, textsize)) {
+      //printf ("appenditem #1 %s\n", item->text);
 			appenditem(item, &matches, &matchend);
-		else if (!fstrncmp(tokv[0], item->text, len))
+    }
+		else if (!fstrncmp(tokv[0], item->text, len)) {
+      //printf ("appenditem #2 %s tokv[0] %s\n", item->text, tokv[0]);
 			appenditem(item, &lprefix, &prefixend);
+    }
 		else
 			appenditem(item, &lsubstr, &substrend);
 	}
@@ -431,6 +473,7 @@ keypress(XKeyEvent *ev)
 		calcoffsets();
 		break;
 	case XK_Left:
+    //printf ("XK_Left\n");
 		if (cursor > 0 && (!sel || !sel->left || lines > 0)) {
 			cursor = nextrune(-1);
 			break;
@@ -445,12 +488,14 @@ keypress(XKeyEvent *ev)
 		}
 		break;
 	case XK_Next:
+    //printf ("XK_Next\n");
 		if (!next)
 			return;
 		sel = curr = next;
 		calcoffsets();
 		break;
 	case XK_Prior:
+    //printf ("XK_Prior\n");
 		if (!prev)
 			return;
 		sel = curr = prev;
@@ -467,6 +512,7 @@ keypress(XKeyEvent *ev)
 			sel->out = 1;
 		break;
 	case XK_Right:
+    //printf ("XK_Right\n");
 		if (text[cursor] != '\0') {
 			cursor = nextrune(+1);
 			break;
@@ -516,27 +562,62 @@ readstdin(void)
 	char buf[sizeof text], *p;
 	size_t i, imax = 0, size = 0;
 	unsigned int tmpmax = 0;
+  struct wdims { int x, y, w, h; struct wdims *next;};
+  struct wdims *wdlist = NULL; 
 
+  int itemCnt = 0;
 	/* read each line from stdin and add it to the item list */
 	for (i = 0; fgets(buf, sizeof buf, stdin); i++) {
-		if (i + 1 >= size / sizeof *items)
+    //printf ("sizeof *items: %d BUFSIZ %d\n", sizeof *items, BUFSIZ);
+		char *buf_ = buf;
+
+		if ((p = strchr (buf_, ','))) {
+      int dims[4] = {0,0,0,0};
+      for (int j=0; j<4; ++j) {
+			  *p = '\0';
+        dims[j] = atoi(buf_);
+			  buf_ = ++p;
+        p = strchr (buf_, ',');
+        if (!p) p = strchr (buf_, '\n');
+      }
+      //printf ("dims %d, %d, %d, %d\n", dims[0], dims[1], dims[2], dims[3]);
+      struct wdims *wd = malloc (sizeof (struct wdims));
+      wd->x = dims[0]; wd->y = dims[1]; wd->w = dims[2]; wd->h = dims[3];
+      wd->next = wdlist; wdlist = wd;
+      ++nwins;
+      continue;
+		}
+
+		if (itemCnt + 1 >= size / sizeof *items)
 			if (!(items = realloc(items, (size += BUFSIZ))))
 				die("cannot realloc %u bytes:", size);
-		if ((p = strchr(buf, '\n')))
+
+		if ((p = strchr(buf_, '\n')))
 			*p = '\0';
-		if (!(items[i].text = strdup(buf)))
-			die("cannot strdup %u bytes:", strlen(buf) + 1);
-		items[i].out = 0;
-		drw_font_getexts(drw->fonts, buf, strlen(buf), &tmpmax, NULL);
+		if (!(items[itemCnt].text = strdup(buf_)))
+			die("cannot strdup %u bytes:", strlen(buf_) + 1);
+
+		items[itemCnt].out = 0;
+		drw_font_getexts(drw->fonts, items[itemCnt].text, strlen(items[itemCnt].text), &tmpmax, NULL);
 		if (tmpmax > inputw) {
 			inputw = tmpmax;
-			imax = i;
+			imax = itemCnt;
 		}
+    ++ itemCnt;
 	}
 	if (items)
-		items[i].text = NULL;
+		items[itemCnt].text = NULL;
 	inputw = items ? TEXTW(items[imax].text) : 0;
-	lines = MIN(lines, i);
+	lines = MIN(lines, itemCnt);
+
+  cdrw = calloc (nwins, sizeof (Drw*));
+  for (int i=nwins-1; i>=0; --i) {
+    //printf ("Dim: x %d, y %d, w %d, h %d\n", wdlist->x, wdlist->y, wdlist->w, wdlist->h);
+    cdrw [i] = drw_create (dpy, screen, root, wdlist->w, wdlist->h, wdlist->x, wdlist->y);
+	  drw_fontset_create(cdrw[i], cfonts, LENGTH(cfonts));
+    struct wdims *tmp = wdlist->next;
+    free (wdlist); wdlist = tmp;
+  }
 }
 
 static void
@@ -642,6 +723,9 @@ setup(void)
 	inputw = MIN(inputw, mw/3);
 	match();
 
+  if (mx != -1) x = mx;
+  if (my != -1) y = my;
+
 	/* create menu window */
 	swa.override_redirect = True;
 	swa.background_pixel = scheme[SchemeNorm][ColBg].pixel;
@@ -667,13 +751,26 @@ setup(void)
 		grabfocus();
 	}
 	drw_resize(drw, mw, mh);
+
+  if (nwins) {
+    cwins = calloc (nwins, sizeof (Window));
+    for (int w=0; w < nwins; ++w) {
+      Drw *wdrw = cdrw [w];
+      cwins [w] = XCreateWindow(dpy, parentwin, wdrw->x, wdrw->y, wdrw->w, wdrw->h, 0,
+	                    CopyFromParent, CopyFromParent, CopyFromParent,
+	                    CWOverrideRedirect | CWBackPixel | CWEventMask, &swa);
+	    XSetClassHint(dpy, cwins[w], &ch);
+	    //XMapRaised(dpy, cwins[w]);
+    }
+  }
+
 	drawmenu();
 }
 
 static void
 usage(void)
 {
-	fputs("usage: dmenu [-bfiv] [-l lines] [-p prompt] [-fn font] [-m monitor]\n"
+	fputs("usage: dmenu [-bfiv] [-l lines] [-p prompt] [-fn font] [-fnc font] [-m monitor]\n"
 	      "             [-nb color] [-nf color] [-sb color] [-sf color] [-w windowid]\n", stderr);
 	exit(1);
 }
@@ -707,6 +804,8 @@ main(int argc, char *argv[])
 			prompt = argv[++i];
 		else if (!strcmp(argv[i], "-fn"))  /* font or font set */
 			fonts[0] = argv[++i];
+		else if (!strcmp(argv[i], "-fnc"))  /* font or font set */
+			cfonts[0] = argv[++i];
 		else if (!strcmp(argv[i], "-nb"))  /* normal background color */
 			colors[SchemeNorm][ColBg] = argv[++i];
 		else if (!strcmp(argv[i], "-nf"))  /* normal foreground color */
@@ -717,8 +816,13 @@ main(int argc, char *argv[])
 			colors[SchemeSel][ColFg] = argv[++i];
 		else if (!strcmp(argv[i], "-w"))   /* embedding window id */
 			embed = argv[++i];
+    else if (!strcmp(argv[i], "-x"))
+      mx = atoi(argv[++i]);
+    else if (!strcmp(argv[i], "-y"))
+      my = atoi(argv[++i]);
 		else
 			usage();
+  //printf ("mx %d, my %d\n", mx, my);
 
 	if (!setlocale(LC_CTYPE, "") || !XSupportsLocale())
 		fputs("warning: no locale support\n", stderr);
@@ -731,7 +835,7 @@ main(int argc, char *argv[])
 	if (!XGetWindowAttributes(dpy, parentwin, &wa))
 		die("could not get embedding window attributes: 0x%lx",
 		    parentwin);
-	drw = drw_create(dpy, screen, root, wa.width, wa.height);
+	drw = drw_create(dpy, screen, root, wa.width, wa.height, mx, my);
 	if (!drw_fontset_create(drw, fonts, LENGTH(fonts)))
 		die("no fonts could be loaded.");
 	lrpad = drw->fonts->h;

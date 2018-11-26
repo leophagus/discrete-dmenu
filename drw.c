@@ -61,8 +61,10 @@ utf8decode(const char *c, long *u, size_t clen)
 }
 
 Drw *
-drw_create(Display *dpy, int screen, Window root, unsigned int w, unsigned int h)
+drw_create(Display *dpy, int screen, Window root, unsigned int w, unsigned int h, 
+           unsigned int x, unsigned int y)
 {
+  //printf ("drw_create w %d, h %d, x %d, y %d\n", w,h,x,y);
 	Drw *drw = ecalloc(1, sizeof(Drw));
 
 	drw->dpy = dpy;
@@ -70,6 +72,8 @@ drw_create(Display *dpy, int screen, Window root, unsigned int w, unsigned int h
 	drw->root = root;
 	drw->w = w;
 	drw->h = h;
+  drw->x = x;
+  drw->y = y;
 	drw->drawable = XCreatePixmap(dpy, root, w, h, DefaultDepth(dpy, screen));
 	drw->gc = XCreateGC(dpy, root, 0, NULL);
 	XSetLineAttributes(dpy, drw->gc, 1, LineSolid, CapButt, JoinMiter);

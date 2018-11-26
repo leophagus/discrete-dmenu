@@ -16,6 +16,7 @@ enum { ColFg, ColBg }; /* Clr scheme index */
 typedef XftColor Clr;
 
 typedef struct {
+  unsigned int x, y;
 	unsigned int w, h;
 	Display *dpy;
 	int screen;
@@ -27,7 +28,8 @@ typedef struct {
 } Drw;
 
 /* Drawable abstraction */
-Drw *drw_create(Display *dpy, int screen, Window win, unsigned int w, unsigned int h);
+Drw *drw_create(Display *dpy, int screen, Window win, unsigned int w, unsigned int h, 
+                  unsigned int x, unsigned int y);
 void drw_resize(Drw *drw, unsigned int w, unsigned int h);
 void drw_free(Drw *drw);
 
